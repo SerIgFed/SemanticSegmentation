@@ -5,18 +5,18 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils import data
 from torch.utils import tensorboard
-from ignite import engine
-from ignite import handlers
-from ignite.contrib import handlers as contrib_handlers
+from ignite.engine import Engine, Events
+from ignite.handlers import ModelCheckpoint
+#from ignite.contrib import handlers as contrib_handlers
 
 
 def attach_lr_scheduler(
-    trainer: engine.Engine,
+    trainer: Engine,
     lr_scheduler: optim.lr_scheduler._LRScheduler,
     writer: tensorboard.SummaryWriter,
 ):
-    @trainer.on(engine.Events.EPOCH_COMPLETED)
-    def update_lr(engine: engine.Engine):
+    @trainer.on(Events.EPOCH_COMPLETED)
+    def update_lr(engine: Engine):
         current_lr = lr_scheduler.get_last_lr()[0]
         logging.info(f'epoch: {engine.state.epoch} - current lr: {current_lr}')
         writer.add_scalar('learning_rate', current_lr, engine.state.epoch)
@@ -25,12 +25,12 @@ def attach_lr_scheduler(
 
 
 def attach_training_logger(
-    trainer: engine.Engine,
+    trainer: Engine,
     writer: tensorboard.SummaryWriter,
     log_interval: int = 10,
 ):
-    @trainer.on(engine.Events.ITERATION_COMPLETED)
-    def log_training_loss(engine: engine.Engine):
+    @trainer.on(Events.ITERATION_COMPLETED)
+    def log_training_loss(engine: Engine):
         epoch_length = engine.state.epoch_length
         epoch = engine.state.epoch
         output = engine.state.output
@@ -46,13 +46,13 @@ def attach_training_logger(
 
 
 def attach_metric_logger(
-    trainer: engine.Engine,
-    evaluator: engine.Engine,
+    trainer: Engine,
+    evaluator: Engine,
     data_name: str,
     data_loader: data.DataLoader,
     writer: tensorboard.SummaryWriter,
 ):
-    @trainer.on(engine.Events.EPOCH_COMPLETED)
+    @trainer.on(Events.EPOCH_COMPLETED)
     def log_metrics(engine):
         evaluator.run(data_loader)
         metrics = evaluator.state.metrics
@@ -60,16 +60,16 @@ def attach_metric_logger(
         message = ''
         for metric_name, metric_value in metrics.items():
             writer.add_scalar(f'{data_name}/mean_{metric_name}', metric_value, engine.state.epoch)
-            message += f'{data_name}_{metric_name}: {metric_value:.3f} '
+            message += f'{metric_name}: {metric_value:.3f} '
 
         logging.info(message)
 
 
-def attach_model_checkpoint(trainer: engine.Engine, models: Dict[str, nn.Module]):
-    def to_epoch(trainer: engine.Engine, event_name: str):
+def attach_model_checkpoint(trainer: Engine, models: Dict[str, nn.Module]):
+    def to_epoch(trainer: Engine, event_name: str):
         return trainer.state.epoch
 
-    handler = handlers.ModelCheckpoint(
+    handler = ModelCheckpoint(
         './models',
         'model',
         create_dir=True,
@@ -77,4 +77,4 @@ def attach_model_checkpoint(trainer: engine.Engine, models: Dict[str, nn.Module]
         n_saved=None,
         global_step_transform=to_epoch,
     )
-    trainer.add_event_handler(engine.Events.EPOCH_COMPLETED, handler, models)
+    trainer.add_event_handler(Events.EPOCH_COMPLETED, handler, models)

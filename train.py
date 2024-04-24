@@ -44,9 +44,6 @@ if __name__ == '__main__':
     args = parse_args()
     logging.basicConfig(level=logging.DEBUG if args.debug else logging.INFO)
 
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    logging.info(f'running training on {device}')
-
     logging.info('creating dataset and data loaders')
 
     # assert args.train != args.val
@@ -63,7 +60,7 @@ if __name__ == '__main__':
 
     logging.info(f'creating {args.model_type} and optimizer with initial lr of {args.initial_lr}')
     model = models[args.model_type](train_dataset.categories)
-    model = nn.DataParallel(model).to(device)
+    model = nn.DataParallel(model).cuda()
     optimizer = optim.RMSprop(params=[p for p in model.parameters() if p.requires_grad], lr=args.initial_lr)
 
     logging.info('creating trainer and evaluator engines')
@@ -72,18 +69,18 @@ if __name__ == '__main__':
         model=model,
         optimizer=optimizer,
         loss_fn=loss_fn,
-        device=device,
+        device='cuda',
         non_blocking=True,
     )
 
     evaluator = engine.create_supervised_evaluator(
         model,
         metrics={
-            'loss': metrics.Loss(nn.BCELoss()),
-            'precision': metrics.Precision(thresholded_transform(threshold=0.5)),
-            'recall': metrics.Recall(thresholded_transform(threshold=0.5)),
-            'IoU@0.3': IoUMetric(thresholded_transform(threshold=0.3)),
-            'IoU@0.5': IoUMetric(thresholded_transform(threshold=0.5)),
+            'loss': metrics.Loss(nn.BCELoss(), device='cuda:0'),
+            'precision': metrics.Precision(thresholded_transform(threshold=0.5), device='cuda:0'),
+            'recall': metrics.Recall(thresholded_transform(threshold=0.5), device='cuda:0'),
+            'IoU@0.3': IoUMetric(thresholded_transform(threshold=0.3), device='cuda:0'),
+            'IoU@0.5': IoUMetric(thresholded_transform(threshold=0.5), device='cuda:0'),
         },
         device='cuda',
         non_blocking=True,
