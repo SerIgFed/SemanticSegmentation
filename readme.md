@@ -1,97 +1,74 @@
 # Semantic Segmentation
-## Overview
-This project started as a replacement to the [Skin Detection](https://github.com/WillBrennan/SkinDetector) project that used traditional computer vision techniques. This project implements two models, 
+[Source](https://github.com/WillBrennan/SemanticSegmentation)
+## Usage
+This repository contains code for semantic segmentation using `BiSeNetV2` or `FCNResNet101`.
+The pretrained `BiSeNetV2` model for people segmentation located under models/model_segmentation_person2_30.pt.
 
-- `FCNResNet101` from torchvision for accurate segmentation
-- `BiSeNetV2` for real-time segmentation
+You can convert it to the `onnx` format using the `to_onnx.py` script to use it the pipeline.
 
-These models are trained with masks from labelme annotations. As labelme annotations allow for multiple categories per a pixel we use multi-label semantic segmentation. Both the accurate and real-time models are in the pretrained directory.
+You can also run video segmentation with `.pt` model and train a new model using COCO dataset.
 
-## Getting Started
-The pretrained models are stored in the repo with git-lfs, when you clone make sure you've pulled the files by calling, 
-
-```bash
-git lfs pull
+### Install
+Optionally create virtual environment:
 ```
- or by downloading them from github directly. This project uses conda to manage its enviroment; once conda is installed we create the enviroment and activate it, 
-```bash
-conda env create -f enviroment.yml
-conda activate semantic_segmentation
+python -m venv venv
+source venv/bin/activate (on Linux) or
+.\venv\Scripts\activate (on Windows)
 ```
-. On windows; powershell needs to be initialised and the execution policy needs to be modified. 
-```bash
-conda init powershell
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+Install requirements:
 ```
-
-## Pre-Trained Segmentation Projects
-This project comes bundled with several pretrained models, which can be found in the `pretrained` directory. To infer segmentation masks on your images run `evaluate_images`.
-```bash
-# to display the output
-python evaluate_images.py --images ~/Pictures/ --model pretrained/model_segmentation_skin_30.pth --model-type FCNResNet101 --display
-# to save the output
-python evaluate_images.py --images ~/Pictures/ --model pretrained/model_segmentation_skin_30.pth --model-type FCNResNet101 --save
+pip install -r requirements.txt
 ```
-
-To run the real-time models change the `--model-type`, 
-```bash
-# to display the output
-python evaluate_images.py --images ~/Pictures/ --model pretrained/model_segmentation_realtime_skin_30.pth --model-type BiSeNetV2 --display
-# to save the output
-python evaluate_images.py --images ~/Pictures/ --model pretrained/model_segmentation_realtime_skin_30.pth --model-type BiSeNetV2 --save
+### Convert pre-trained model to .onnx
 ```
-
-
-### Skin Segmentation
-This model was trained with a custom dataset of 150 images taken from COCO where skin segmentation annotations were added. This includes a wide variety of skin colours and lighting conditions making it more robust than the [Skin Detection](https://github.com/WillBrennan/SkinDetector) project. This model detects, 
-
-- skin
-![Skin Segmentation](https://raw.githubusercontent.com/WillBrennan/SemanticSegmentation/master/pretrained/skin_examples.png)
-
-### Pizza Topping Segmentation
-This was trained with a custom dataset of 89 images taken from COCO where pizza topping annotations were added. There's very few images for each type of topping so this model performs very badly and needs quite a few more images to behave well!
-
-- 'chilli', 'ham', 'jalapenos', 'mozzarella', 'mushrooms', 'olive', 'pepperoni', 'pineapple', 'salad', 'tomato'
-
-![Pizza Toppings](https://raw.githubusercontent.com/WillBrennan/SemanticSegmentation/master/pretrained/pizza_toppings_example.png)
-
-### Cat and Bird Segmentation
-Annotated images of birds and cats were taken from COCO using the `extract_from_coco` script and then trained on. 
-
-- cat, birds
-
-![Demo on Cat & Birds](https://raw.githubusercontent.com/WillBrennan/SemanticSegmentation/master/pretrained/cat_examples.png)
-
-
-## Training New Projects
-To train a new project you can either create new labelme annotations on your images, to launch labelme run, 
-
-```bash
-labelme
+python to_onnx.py --height <out_height> --width <out_width> --input_path models/model_segmentation_person2_30.pt --output_path <onnx_out_path>
 ```
-and start annotating your images! You'll need a couple of hundred. Alternatively if your category is already in COCO you can run the conversion tool to create labelme annotations from them. 
+### Required width, height and output_path
+Given that full_frame_width has size `\[full_width, full_height\]`,
+"tracker:sem_seg_scale" is set to `sem_seg_scale` in config.
 
-```bash
-python extract_from_coco.py --images ~/datasets/coco/val2017 --annotations ~/datasets/coco/annotations/instances_val2017.json --output ~/datasets/my_cat_images_val --categories cat
+You need create ONNX model with
+* height >= full_height / sem_seg_scale, height % 32 == 0, height is the minimum possible such value 
+* width >= height * full_width / full_height, width % 32 == 0, width is the minimum possible such value
+* output_path = \<path to Pipeline\>/people_segm/models/segmentation/bisenet_\<width\>x\<height\>.onnx
+
+For example:
+Full frame width is 3840x2160, sem_seg_scale is 4.5. Then
+* height = 480
+* width = 864
+* output_path is \<path to Pipeline\>/people_segm/models/segmentation/bisenet_864x480.onnx
+
+Another example:
+Full frame width is 3120x2340, sem_seg_scale is 4.5. Then
+* height = 544
+* width = 736
+* output_path is \<path to Pipeline\>/people_segm/models/segmentation/bisenet_736x544.onnx
+
+### Video segmentation
+```
+python evaluate_images.py --in_video <input video> --out_video <output video> --model models/model_segmentation_person2_30.pt --model-type BiSeNetV2
 ```
 
-Once you've got a directory of labelme annotations you can check how the images will be shown to the model during training by running, 
+### Train model
+Download `2017 Train images` and `2017 Stuff Train/Val annotations` from the [COCO Dataset](https://cocodataset.org/#download).
 
-```bash
-python check_dataset.py --dataset ~/datasets/my_cat_images_val
-# to show our dataset with training augmentation
-python check_dataset.py --dataset ~/datasets/my_cat_images_val --use-augmentation
-```
-. If your happy with the images and how they'll appear in training then train the model using, 
+Locate it under `datasets/COCO`
 
-```bash
-python train.py --train ~/datasets/my_cat_images_train --val ~/datasets/my_cat_images_val --model-tag segmentation_cat --model-type FCNResNet101
-```
-. This may take some time depending on how many images you have. Tensorboard logs are available in the `logs` directory. To run your trained model on a directory of images run
+Extract images and annotations for `person` class:
 
-```bash
-# to display the output
-python evaluate_images.py --images ~/Pictures/my_cat_imgs --model models/model_segmentation_cat_30.pth --model-type FCNResNet101 --display 
-# to save the output
-python evaluate_images.py --images ~/Pictures/my_cat_imgs --model models/model_segmentation_cat_30.pth --model-type FCNResNet101 --save
 ```
+python extract_from_coco.py --images datasets/COCO/val2017/ --annotations datasets/COCO/annotations/instances_val2017.json --output datasets/person_coco_images --categories person 
+```
+
+Check dataset markup:
+
+```
+python check_dataset.py --dataset datasets/person_coco_images_train
+```
+
+Run training:
+```
+python train.py --train datasets/person_coco_images_train --val datasets/person_coco_images_val --model-tag segmentation_person --model-type BiSeNetV2
+```
+
+For more information, check readme_source.md.
