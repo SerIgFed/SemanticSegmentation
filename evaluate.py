@@ -16,10 +16,13 @@ from semantic_segmentation import draw_results
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--images', type=str, default=None)
-
+    parser.add_argument('-d', '--device', type=str, default='GPU',
+                        help='Optional. Specify the target device to infer on: CPU or GPU (def)')
+    parser.add_argument('--images', type=str, default=None,
+                        help='Optional. Specify folder with images')
     parser.add_argument('--video', type=str, default=None)
-    parser.add_argument('--rotate', action='store_true', help='Optional. Rotate each given frame by 180 deg. before process')
+    parser.add_argument('--rotate', action='store_true',
+                        help='Optional. Rotate each given frame by 180 deg. before process')
 
     parser.add_argument('--out_video', type=str, default=None)
 
@@ -48,7 +51,7 @@ def _load_image(image_path: pathlib.Path):
 
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-    image_width = (image.shape[1] // 32) * 32
+    image_width  = (image.shape[1] // 32) * 32
     image_height = (image.shape[0] // 32) * 32
 
     image = image[:image_height, :image_width]
@@ -70,70 +73,17 @@ def get_color(num):
     return colors[num]
 
 
-def infer_on_img_dir(args, input_dir, output_dir):
-    from os import listdir, mkdir
-    from os.path import isdir, join, exists
-    model = load_model(models[args.model_type], torch.load(args.model))
-    model.cuda().eval()
-    target_height = 480
-    for cam in listdir(input_dir):
-        cam_path = join(input_dir, cam)
-        if isdir(cam_path):
-            out_cam_path = join(output_dir, cam)
-            if not exists(out_cam_path):
-                mkdir(out_cam_path)
-                mkdir(join(out_cam_path, 'men'))
-            for img_name in listdir(cam_path):
-                frame = cv2.imread(join(cam_path, img_name))
-                out_frame = join(join(out_cam_path, 'men'), img_name[:-4] + '.png')
-                ratio = frame.shape[1] / frame.shape[0]
-                target_width = int(target_height * ratio)
-                image_width = (target_width // 32) * 32
-                image_height = (target_height // 32) * 32
-                frame = cv2.resize(frame, (image_width, image_height))
-                # frame = frame[:image_height, :image_width]
-                frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                img = torch.from_numpy(frame.transpose((2, 0, 1)))
-                img = img.cuda()
-                img = img.div(255)
-                img = transforms.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))(img)
-                with torch.no_grad():
-                    img = img.unsqueeze(0)
-                    output = model(img)['out']
-                    output = torch.sigmoid(output)
-
-                    output = output > args.threshold
-                for ind, (cat, cat_image, mask_image) in enumerate(
-                        draw_results(img[0], output[0], categories=model.categories)):
-                    if np.max(mask_image):
-                        mask_pixels = np.where(mask_image > 0)[:2]
-                        frame[mask_pixels] //= 2
-                        frame[mask_pixels] = frame[mask_pixels] + get_color(ind)
-                        mask_image[mask_image > 0] = 1
-                        mask_image[:, :, 0][mask_image[:, :, 1] > 0] = 1
-                        mask_image[:, :, 0][mask_image[:, :, 2] > 0] = 1
-                        mask_image = cv2.resize(mask_image, (3840, 2160), cv2.INTER_NEAREST)
-                        mask_image = mask_image.astype(np.uint8) * 255
-                        cv2.imwrite(out_frame, mask_image[:, :, 0])
-
-
-def infer_on_video(args):
-    if args.video is None:
-        print('Provide input video paths to infer on video')
-        return
+def infer_on_video(args, device):
     display = args.display or args.out_video == None
 
-    model = load_model(models[args.model_type], torch.load(args.model))
-    # model.half()
-    model.cuda().eval()
     cap = cv2.VideoCapture(args.video)
     fps = cap.get(cv2.CAP_PROP_FPS)
     video_height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
-    video_width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+    video_width  = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
     ratio = video_width / video_height
     target_height = 480
     target_width = int(target_height * ratio)
-    image_width = (target_width // 32) * 32
+    image_width  = (target_width // 32) * 32
     image_height = (target_height // 32) * 32
     if not display:
         writer = cv2.VideoWriter(args.out_video, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'), fps, (image_width, image_height))
@@ -142,39 +92,34 @@ def infer_on_video(args):
     delay = 1
     esc_code = 27
     p_code = 112
+    mean_time = 0
 
     while True:
+        current_time = cv2.getTickCount()
         ret, frame = cap.read()
         if not ret:
             break
 
         if args.rotate:
             frame = cv2.rotate(frame, cv2.ROTATE_180)
-        
-        # frame = frame[:2160, :3744]
-        # (853, 480)
         frame = cv2.resize(frame, (target_width, target_height))
-
         frame = frame[:image_height, :image_width]
+
         beg = time.process_time()
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         # frame = frame.astype(np.float16)
-        # smth3 = smth2.contiguous()
-        img = torch.from_numpy(frame.transpose((2, 0, 1)))
+        img = torch.from_numpy(frame.transpose((2, 0, 1)))  # permute_channels
         # img = img.type(torch.HalfTensor)
-        img = img.cuda()
-        # img = img.float()
-        # img = img.half()
+        #img = img.cuda()
         img = img.div(255)
         img = transforms.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))(img)
         with torch.no_grad():
-            img = img.unsqueeze(0)
+            img = img.to(device).unsqueeze(0)
             output = model(img)['out']
             output = torch.sigmoid(output)
 
             output = output > args.threshold
             end = time.process_time()
-            #print(end - beg)
             times.append(end - beg)
         for ind, (cat, cat_image, mask_image) in enumerate(draw_results(img[0], output[0], categories=model.categories)):
             if np.max(mask_image):
@@ -191,6 +136,13 @@ def infer_on_video(args):
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
         if display:
+            current_time = (cv2.getTickCount() - current_time) / cv2.getTickFrequency()
+            if mean_time == 0:
+                mean_time = current_time
+            else:
+                mean_time = mean_time * 0.95 + current_time * 0.05
+            cv2.putText(frame, 'FPS: {}'.format(int(1 / mean_time * 10) / 10),
+                        (40, 40), cv2.FONT_HERSHEY_COMPLEX, 1, (0, 0, 255))
             cv2.imshow('Masked frame', frame)
             key = cv2.waitKey(delay)
             if key == esc_code:
@@ -203,21 +155,19 @@ def infer_on_video(args):
         else:
             writer.write(frame)
 
-    #print(np.mean(times))
+    print(np.mean(times))
     cap.release()
     if not display:
         writer.release()
 
 
-def eval_images(args):
-
+def infer_on_images_folder(args, device):
     assert args.display or args.save
 
-    logging.info(f'loading {args.model_type} from {args.model}')
-    model = load_model(models[args.model_type], torch.load(args.model))
-    model.cuda().eval()
-
     logging.info(f'evaluating images from {args.images}')
+    if args.rotate:
+        logging.info('flag rotate is not supported')
+    
     image_dir = pathlib.Path(args.images)
 
     fn_image_transform = transforms.Compose(
@@ -236,7 +186,7 @@ def eval_images(args):
 
         with torch.no_grad():
             begin = time.process_time()
-            image = image.cuda().unsqueeze(0)
+            image = image.to(device).unsqueeze(0)
             results = model(image)['out']
             results = torch.sigmoid(results)
 
@@ -264,5 +214,23 @@ def eval_images(args):
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
-    parsed_args = parse_args()
-    infer_on_video(parsed_args)
+    args = parse_args()
+
+    if args.video == None and args.images == None:
+        raise ValueError('Either --video or --image has to be provided')
+
+    if args.device == 'GPU' and not torch.cuda.is_available():
+        print('No CUDA device found, inferring on CPU')
+    device = 'cuda:0' if torch.cuda.is_available() and args.device == 'GPU' else 'cpu'
+    logging.info(f'running inference on {device}')
+
+    logging.info(f'loading {args.model_type} from {args.model}')
+    model = torch.load(args.model, map_location=device)
+    model = load_model(models[args.model_type], model)
+    # model.half()
+    model.to(device).eval()
+
+    if args.images is None:
+        infer_on_video(args, device)
+    else:
+        infer_on_images_folder(args, device)
